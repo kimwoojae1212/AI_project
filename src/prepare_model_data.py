@@ -10,7 +10,7 @@ import shapely
 from shapely.geometry import shape
 
 from build_training_data import CODE, COUNT, TOTAL
-from predict_annual_sales import COORDS, FEATURES, TARGET
+from build_annual_training_source import FEATURES, TARGET
 
 DONG = "행정동코드"
 MONTH = "특성_점포기준연월"

@@ -1,25 +1,17 @@
-"""Build and serve a map-based estimate of annual sales per restaurant."""
+"""Build the annual per-store revenue reference and nearby restaurant features."""
 import argparse
 import json
 import re
 from pathlib import Path
-from urllib.parse import parse_qs
-from wsgiref.simple_server import make_server
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error
 from sklearn.neighbors import BallTree
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import OneHotEncoder
 
 from build_training_data import CODE, TOTAL, count_stores, load_markets, load_sales, load_stores
 
 RADIUS_KM = 6371.0088
 NEIGHBORHOOD_M = 500
-MAX_SUPPORT_M = 1000
 COORDS = ["위도", "경도"]
 NEARBY = ["500m_음식점수", "500m_동종점포수", "동종점포_최근거리_m_상한500"]
 FEATURES = [CODE, *COORDS, *NEARBY]
@@ -116,120 +108,15 @@ def build_dataset(project, output, proxy):
     print(f"연매출 학습 데이터 저장: {output} ({len(data):,}행)")
 
 
-def fit_model(path):
-    data = pd.read_csv(path, dtype={CODE: str, "상권ID": str})
-    train, test = (data.loc[data["split"].eq(part)] for part in ("train", "test"))
-    encode = ColumnTransformer([
-        ("업종", OneHotEncoder(handle_unknown="ignore"), [CODE]),
-        ("수치", "passthrough", [*COORDS, *NEARBY]),
-    ])
-    model = make_pipeline(encode, RandomForestRegressor(n_estimators=200, random_state=42))
-    model.fit(train[FEATURES], train[TARGET])
-    metrics = {
-        "train_rows": len(train),
-        "test_rows": len(test),
-        "test_mae_won": round(mean_absolute_error(test[TARGET], model.predict(test[FEATURES]))),
-        "test_median_baseline_mae_won": round(mean_absolute_error(
-            test[TARGET], np.full(len(test), train[TARGET].median())
-        )),
-    }
-    return model, train, metrics
-
-
-def load_predictor(project, dataset):
-    model, train, _ = fit_model(dataset)
-    snapshots = find_snapshots(project / "data/raw")
-    latest = max(snapshots)
-    nearby = NearbyRestaurants(load_stores(snapshots[latest]))
-    method = pd.read_csv(dataset, usecols=["목표값_산정방식"], nrows=1).iloc[0, 0]
-    return model, train, method, latest, nearby
-
-
-def predict(lat, lon, code, predictor):
-    model, train, method, latest, nearby = predictor
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        raise ValueError("위도·경도 범위를 확인하세요.")
-    candidates = train.loc[train[CODE].eq(code)]
-    if candidates.empty:
-        raise ValueError("해당 업종의 학습 자료가 없습니다.")
-    coordinates = np.radians([[lat, lon]])
-    support = BallTree(np.radians(candidates[COORDS].to_numpy(dtype=float)), metric="haversine")
-    distance, nearest = support.query(coordinates, k=1)
-    distance_m = float(distance[0, 0] * RADIUS_KM * 1000)
-    if distance_m > MAX_SUPPORT_M:
-        raise ValueError(f"가장 가까운 동종 업종 학습 상권까지 {distance_m:.0f}m로, 예측 지원 범위 밖입니다.")
-
-    query = pd.DataFrame([{CODE: code, "위도": lat, "경도": lon}])
-    query[NEARBY] = nearby.features(query)
-    amount = model.predict(query[FEATURES])[0]
-    return {
-        "점포당_예상연매출_참고값_원": round(float(amount)),
-        "산정방식": method,
-        "업종코드": code,
-        "위도": lat,
-        "경도": lon,
-        "주변점포_기준연월": f"{latest[0]}{latest[1] * 3:02d}",
-        "가장_가까운_동종_학습상권ID": candidates.iloc[nearest[0, 0]]["상권ID"],
-        "가장_가까운_동종_학습상권_대표점_거리_m": round(distance_m),
-        **{name: round(float(query.at[0, name])) for name in NEARBY},
-    }
-
-
-def serve(predictor, port):
-    def app(environ, start_response):
-        status = "200 OK"
-        if environ["REQUEST_METHOD"] != "GET" or environ["PATH_INFO"] != "/predict":
-            status, result = "404 Not Found", {"error": "GET /predict 경로를 사용하세요."}
-        else:
-            params = parse_qs(environ["QUERY_STRING"])
-            try:
-                lat = float(params["lat"][0])
-                lon = float(params["lon"][0])
-                code = params["code"][0]
-                result = predict(lat, lon, code, predictor)
-            except KeyError:
-                status, result = "400 Bad Request", {"error": "lat, lon, code가 필요합니다."}
-            except ValueError as error:
-                status, result = "400 Bad Request", {"error": str(error)}
-        start_response(status, [("Content-Type", "application/json; charset=utf-8")])
-        return [json.dumps(result, ensure_ascii=False).encode("utf-8")]
-
-    with make_server("127.0.0.1", port, app) as server:
-        print(f"로컬 연매출 API: http://127.0.0.1:{port}/predict", flush=True)
-        server.serve_forever()
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--dataset", type=Path)
-    command = parser.add_subparsers(dest="command", required=True)
-    build = command.add_parser("build")
-    build.add_argument("--proxy", action="store_true", help="연중 한 시점의 분모를 쓰는 데모용 CSV")
-    command.add_parser("evaluate")
-    server = command.add_parser("serve")
-    server.add_argument("--port", type=int, default=8000)
-    forecast = command.add_parser("predict")
-    forecast.add_argument("--lat", type=float, required=True)
-    forecast.add_argument("--lon", type=float, required=True)
-    forecast.add_argument("--code", required=True)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--proxy", action="store_true", help="연중 관측한 한 시점의 점포 수 사용")
     args = parser.parse_args()
-
-    folder = args.project / "data/processed/training"
-    if args.command == "build":
-        filename = "annual_per_store_proxy.csv" if args.proxy else "annual_per_store.csv"
-        build_dataset(args.project, args.dataset or folder / filename, args.proxy)
-        return
-    dataset = args.dataset or folder / "annual_per_store_proxy.csv"
-    if args.command == "evaluate":
-        _, _, result = fit_model(dataset)
-    else:
-        predictor = load_predictor(args.project, dataset)
-        if args.command == "serve":
-            serve(predictor, args.port)
-            return
-        result = predict(args.lat, args.lon, args.code, predictor)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    filename = "annual_per_store_proxy.csv" if args.proxy else "annual_per_store.csv"
+    output = args.output or args.project / "data/processed/training" / filename
+    build_dataset(args.project, output, args.proxy)
 
 
 if __name__ == "__main__":
