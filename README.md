@@ -24,51 +24,6 @@
 
 [목표값과 매칭 검산표](data/processed/training/annual_training_audit.csv)에는 매출 합계와 관측 점포 수, 원본 행정동 코드, 관측 시간 수가 있다. [행정동 유동인구 집계표](data/processed/training/dong_population_features.csv)에는 향후 지도 입력에 붙이는 데 쓸 2025년 12월 값도 있다. [팀원 행정동 경계 원본](https://github.com/woochul0516/AI-project-univ/blob/7b0b9939b0b8be6ba5edce07e1d268138589664e/data/geojson/anyang-si.geojson) · [안양시 행정동 변동 이력](https://www.anyang.go.kr/main/contents.do?key=289) · [2024년 명칭 변경 공지](https://www.anyang.go.kr/main/selectBbsNttView.do?bbsNo=62&key=259&nttNo=350749)
 
-### 모델 확인
-
-아래 코드는 저장소 루트에서 실행한다. `requirements-training.txt`를 설치한 다음, 기존 학습 스크립트의 모델 부분을 비교 대상 모델로 바꿔도 입력과 분할은 동일하게 유지한다.
-
-```python
-import json
-from pathlib import Path
-import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import GroupKFold, cross_val_score
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import OneHotEncoder
-
-root = Path("data/processed/training")
-spec = json.loads((root / "annual_training_manifest.json").read_text(encoding="utf-8"))
-columns, target = spec["feature_columns"], spec["target"]
-data = pd.read_csv(root / spec["dataset"], dtype={"상권ID": str, "산업분류코드": str})
-train = data.loc[data["split"].eq("train")]
-test = data.loc[data["split"].eq("test")]
-
-preprocess = ColumnTransformer([
-    ("category", OneHotEncoder(handle_unknown="ignore"), spec["categorical_features"]),
-    ("numeric", SimpleImputer(strategy="median"), spec["numeric_features"]),
-])
-model = make_pipeline(preprocess, RandomForestRegressor(n_estimators=200, random_state=42))
-scores = cross_val_score(
-    model, train[columns], train[target], groups=train["상권ID"],
-    cv=GroupKFold(n_splits=5), scoring="neg_mean_absolute_error",
-)
-print(f"학습 연도 상권 그룹 CV MAE: {-scores.mean():,.0f}원")
-model.fit(train[columns], train[target])
-print(f"2024년 테스트 MAE: {mean_absolute_error(test[target], model.predict(test[columns])):,.0f}원")
-medians = train.groupby("산업분류코드")[target].median()
-baseline = test["산업분류코드"].map(medians).fillna(train[target].median())
-print(f"업종별 중앙값 기준선 MAE: {mean_absolute_error(test[target], baseline):,.0f}원")
-print(f"상권 수: {data['상권ID'].nunique()}, 업종 수: {data['산업분류코드'].nunique()}")
-assert not data.duplicated(spec["identifier_columns"]).any()
-assert not data[columns + [target]].isna().any().any()
-```
-
-랜덤 포레스트의 2024년 테스트 MAE는 **169,703,187원**이었다. 업종별 중앙값 기준선의 MAE는 **203,615,189원**이었다. 기존 경쟁 특성만 쓴 데모의 랜덤 포레스트는 **165,389,119원**이었으므로, 이번 실행에서 유동인구 추가로 테스트 MAE가 개선되지는 않았다. 동일 데이터로 팀 모델별 비교는 가능하며, 이 수치는 신규 점포의 실측 매출이나 첫 영업연도 예측 정확도를 의미하지 않는다.
-
 ### 다시 만들기
 
 ```bash
