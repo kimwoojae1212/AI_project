@@ -1,0 +1,60 @@
+{
+  "dataset": "annual_per_store_training.csv",
+  "target": "점포당_연매출_참고값",
+  "target_kind": "annual_area_industry_sales_divided_by_one_observed_store_count",
+  "identifier_columns": [
+    "기준연도",
+    "상권ID",
+    "산업분류코드"
+  ],
+  "feature_columns": [
+    "산업분류코드",
+    "위도",
+    "경도",
+    "500m_음식점수",
+    "500m_동종점포수",
+    "동종점포_최근거리_m_상한500",
+    "행정동_시간대평균_유동인구",
+    "행정동_저녁시간대평균_유동인구",
+    "행정동_유동인구_20대30대_비율"
+  ],
+  "categorical_features": [
+    "산업분류코드"
+  ],
+  "numeric_features": [
+    "위도",
+    "경도",
+    "500m_음식점수",
+    "500m_동종점포수",
+    "동종점포_최근거리_m_상한500",
+    "행정동_시간대평균_유동인구",
+    "행정동_저녁시간대평균_유동인구",
+    "행정동_유동인구_20대30대_비율"
+  ],
+  "train_years": [
+    2023
+  ],
+  "test_years": [
+    2024
+  ],
+  "split_counts": {
+    "train": 346,
+    "test": 336
+  },
+  "population_matches_by_split": {
+    "test": 336,
+    "train": 346
+  },
+  "population_missing_by_feature": {
+    "행정동_시간대평균_유동인구": 0,
+    "행정동_저녁시간대평균_유동인구": 0,
+    "행정동_유동인구_20대30대_비율": 0
+  },
+  "test_rows_unseen_industry": 0,
+  "population_months": [
+    "202303",
+    "202409",
+    "202512"
+  ],
+  "serving_month": "202512"
+}
