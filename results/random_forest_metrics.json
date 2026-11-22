@@ -1,0 +1,32 @@
+{
+  "model": "random_forest",
+  "input_file": "anyang_sales_training_pilot.csv",
+  "target": "매출금액",
+  "excluded_feature_columns": [
+    "매출건수",
+    "분기말_관측점포수",
+    "점포수_기준연월",
+    "점포당_분기매출_참고값"
+  ],
+  "random_state": 42,
+  "test_fraction": 0.2,
+  "train_rows": 36,
+  "test_rows": 9,
+  "n_estimators": 200,
+  "fit_seconds": 0.6600552999880165,
+  "test_inference_seconds": 0.11264910001773387,
+  "train": {
+    "r2": 0.9443057765559085,
+    "mae": 31830189.715555556,
+    "rmse": 50367327.551055744,
+    "mape_pct": 1741.5037876799815,
+    "mape_excluded_zero_count": 0
+  },
+  "test": {
+    "r2": 0.44934291931074954,
+    "mae": 55038973.32777777,
+    "rmse": 79569082.54896967,
+    "mape_pct": 2318.6094862156483,
+    "mape_excluded_zero_count": 0
+  }
+}
