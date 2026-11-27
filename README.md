@@ -26,6 +26,10 @@ python src/train_single_model.py
 
 학습 입력은 명세의 9개 컬럼이며 목표는 `점포당_연매출_참고값`이다. 수치형 중앙값과 범주형 원핫 인코딩은 학습 세트에서만 추정한다. `results/`에 학습·테스트 지표, 테스트 행별 예측과 절대오차, 원본 변수별 중요도 CSV 및 PNG, 전처리를 포함한 모델을 `randomforest_` 접두어로 저장한다. MAPE는 백분율로 기록하며 실제값이 0인 행은 MAPE 계산에서 제외한다. 학습 시간은 전체 파이프라인의 1회 학습 시간이고 추론 시간은 각 세트 전체의 예측 시간이다. 그래프에는 설치된 한글 글꼴을 사용하며, `--font-path`로 글꼴 파일을 지정할 수 있다. 저장된 모델은 Python 3.13과 scikit-learn 1.9.0에서 생성했다.
 
+### 밀당 웹앱 연동
+
+기존 지도와 분석 화면에 최종 모델을 연결하려면 [프론트엔드 패치와 실행 방법](integration/README.md)을 참고한다.
+
 ### 백엔드에서 예측하기
 
 GitHub의 `training-data-pipeline` 브랜치에서 [학습된 모델](results/randomforest_model.pkl)과 [입력 명세](data/processed/training/annual_training_manifest.json)를 가져온다. Python 3.13 환경에서 아래 버전을 사용한다.

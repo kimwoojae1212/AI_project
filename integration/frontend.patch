@@ -1,0 +1,158 @@
+diff --git a/analysis-model.mjs b/analysis-model.mjs
+index 7de7b21..8079ca6 100644
+--- a/analysis-model.mjs
++++ b/analysis-model.mjs
+@@ -50,7 +50,7 @@ export const INDUSTRIES = Object.freeze([
+ 
+ export const RADII = Object.freeze([300, 500, 1000]);
+ export const MAX_CANDIDATES = 3;
+-export const STORAGE_KEY = 'mildang-root-comparison-v1';
++export const STORAGE_KEY = 'mildang-randomforest-comparison-v1';
+ 
+ const INDUSTRY_FACTORS = Object.freeze({
+   'korean-home-meal': 1.21,
+@@ -73,7 +73,7 @@ const INDUSTRY_FACTORS = Object.freeze({
+ });
+ const METRICS = Object.freeze([
+   { key: 'sales', label: '예상 월매출', unit: '원' },
+-  { key: 'foot_traffic', label: '일평균 유동인구', unit: '명/일' },
++  { key: 'foot_traffic', label: '시간대 평균 유동인구', unit: '명' },
+   { key: 'accessibility_score', label: '접근성 지수', unit: '점' },
+ ]);
+ 
+@@ -127,7 +127,7 @@ function validateAnalysisResponse(response) {
+   return response;
+ }
+ 
+-export async function analyzeLocation(input, { signal, scenario = 'success' } = {}) {
++export async function analyzeLocation(input, { signal, scenario = 'success', apiUrl } = {}) {
+   validateInput(input);
+   await delay(scenario === 'slow' ? 2400 : 650, signal);
+ 
+@@ -144,6 +144,23 @@ export async function analyzeLocation(input, { signal, scenario = 'success' } =
+     return validateAnalysisResponse({ status: 'success', sales: 'invalid', radius: input.radius });
+   }
+ 
++  if (apiUrl) {
++    const query = new URLSearchParams({
++      latitude: input.latitude, longitude: input.longitude, industry: input.industry, radius: input.radius,
++    });
++    const response = await fetch(`${apiUrl}?${query}`, { signal });
++    const data = await response.json().catch(error => {
++      if (error.name === 'AbortError') throw error;
++      throw new AnalysisError('랜덤 포레스트 서버 응답을 읽을 수 없습니다.', 'INVALID_RESPONSE');
++    });
++    if (!response.ok) throw new AnalysisError(data?.error || '분석 요청에 실패했습니다.', 'SERVER_ERROR');
++    if (data?.mock !== false || data.radius !== input.radius ||
++        !Number.isInteger(data.reference_year) || !Number.isFinite(data.reference_distance_m)) {
++      throw new AnalysisError('예측 응답 형식이 올바르지 않습니다.', 'INVALID_RESPONSE');
++    }
++    return validateAnalysisResponse(data);
++  }
++
+   const { latitude, longitude, industry, radius } = input;
+   const seed = Math.abs(Math.round(latitude * 100000) * 31 + Math.round(longitude * 100000) * 19 + radius);
+   const scale = 1 + (radius - 500) / 5000;
+@@ -260,7 +277,7 @@ export function createCandidate(result, context) {
+     sales: result.sales,
+     foot_traffic: result.foot_traffic,
+     accessibility_score: result.accessibility_score,
+-    mock: true,
++    mock: result.mock,
+     saved_at: new Date().toISOString(),
+   };
+ }
+diff --git a/app.js b/app.js
+index d0adec7..33a544d 100644
+--- a/app.js
++++ b/app.js
+@@ -478,7 +478,7 @@ function updateSaveButton() {
+   const duplicate = candidates.some(item => sameCandidatePlace(item, {
+     industry: currentAnalysisContext.industry,
+     radius: currentAnalysisContext.radius,
+-    mock: true,
++    mock: currentAnalysis.mock,
+     latitude: currentAnalysisContext.location.lat,
+     longitude: currentAnalysisContext.location.lng,
+   }));
+@@ -493,7 +493,7 @@ function renderAnalysis(result, context) {
+   currentAnalysisContext = context;
+   const industryName = INDUSTRIES.find(item => item.code === context.industry)?.label || context.industry;
+   document.getElementById('result-title').textContent = `${context.location.name} · ${industryName}`;
+-  document.getElementById('result-context').textContent = `화면 확인용 가상 추정 · 반경 ${context.radius}m`;
++  document.getElementById('result-context').textContent = `랜덤 포레스트 · ${result.reference_year}년 관측 상권 대표점까지 ${result.reference_distance_m}m`;
+   document.getElementById('monthly-sales').textContent = formatWonToManwon(result.sales);
+   document.getElementById('competitor-count').textContent = metricText(result.competitor_count);
+   document.getElementById('foot-traffic').textContent = metricText(result.foot_traffic);
+@@ -530,7 +530,7 @@ async function handleAnalyze() {
+       latitude: context.location.lat,
+       longitude: context.location.lng,
+       radius: context.radius,
+-    }, { signal: controller.signal, scenario: document.getElementById('scenario').value });
++    }, { signal: controller.signal, scenario: document.getElementById('scenario').value, apiUrl: '/api/analysis' });
+     if (requestId !== analysisRequestId) return;
+     renderAnalysis(result, context);
+   } catch (error) {
+diff --git a/index.html b/index.html
+index 4e17c56..7454fae 100644
+--- a/index.html
++++ b/index.html
+@@ -57,7 +57,7 @@
+             <span class="studio-eyebrow">LOCATION / INSIGHT</span>
+             <h1>내 가게, 어디가 좋을까요?</h1>
+             <p>업종과 위치를 선택해 창업 입지를 살펴보세요.</p>
+-            <span class="mock-banner"><span></span> 분석 결과는 화면 확인용 가상 데이터입니다.</span>
++            <span class="mock-banner"><span></span> 랜덤 포레스트 매출 참고 추정치를 제공합니다.</span>
+           </div>
+ 
+           <div class="studio-panel-content">
+@@ -83,15 +83,13 @@
+                 <select id="subcategory"></select>
+                 <span class="field-chevron" aria-hidden="true">⌄</span>
+               </div>
+-              <small class="field-help">선택한 세부 업종의 가상 예측 결과를 확인합니다.</small>
++              <small class="field-help">한식·일식·중식의 학습 자료가 있는 세부 업종을 지원합니다.</small>
+             </div>
+ 
+             <div class="field-group">
+               <div class="field-label-row"><span>상권 분석 반경</span></div>
+               <div class="radius-options" role="group" aria-label="상권 분석 반경">
+-                <button type="button" data-radius="300" aria-pressed="false">300m</button>
+                 <button type="button" data-radius="500" class="selected" aria-pressed="true">500m</button>
+-                <button type="button" data-radius="1000" aria-pressed="false">1km</button>
+               </div>
+               <small class="field-help">선택 위치를 중심으로 살펴볼 범위입니다.</small>
+             </div>
+@@ -162,17 +160,17 @@
+                   <span class="result-kicker">MONTHLY SALES ESTIMATE</span>
+                   <h2 id="result-title"></h2>
+                   <p id="result-context"></p>
+-                  <span class="result-label">예상 월매출 <span class="fake-tag">가상값</span></span>
++                  <span class="result-label">예상 월매출 <span class="fake-tag">참고값</span></span>
+                   <div class="headline-number"><span id="monthly-sales"></span><small>만원</small></div>
+                   <button id="save-candidate" class="outline-save" type="button">＋ 비교 목록에 추가</button>
+                 </div>
+                 <div class="metrics-grid">
+-                  <article class="metric-card"><span>주변 경쟁업체</span><strong id="competitor-count">자료 없음</strong><small>선택 반경 기준</small></article>
+-                  <article class="metric-card"><span>일평균 유동인구</span><strong id="foot-traffic">자료 없음</strong><small>가상 데이터</small></article>
+-                  <article class="metric-card"><span>접근성 지수</span><strong id="accessibility-score">자료 없음</strong><small>가상 데이터</small></article>
++                  <article class="metric-card"><span>동종 점포 수</span><strong id="competitor-count">자료 없음</strong><small>상권 대표점 500m 기준</small></article>
++                  <article class="metric-card"><span>시간대 평균 유동인구</span><strong id="foot-traffic">자료 없음</strong><small>관측 상권 기준</small></article>
++                  <article class="metric-card"><span>접근성 지수</span><strong id="accessibility-score">자료 없음</strong><small>제공 자료 없음</small></article>
+                 </div>
+-                <p class="result-disclaimer">실제 지역 통계나 학습된 AI 모델의 예측이 아닙니다. 창업 판단에 사용하지 마세요.</p>
+-                <button id="open-report" class="report-link" type="button">창업 전략 리포트 열기 <span aria-hidden="true">→</span></button>
++                <p class="result-disclaimer">가까운 같은 업종의 관측 상권에서 예측한 점포당 연매출을 12개월로 나눈 값입니다.</p>
++                <button id="open-report" class="report-link" type="button">창업 전략 샘플 열기 <span aria-hidden="true">→</span></button>
+               </div>
+             </section>
+           </div>
+@@ -202,7 +200,7 @@
+           <button class="dialog-close" type="button" data-close-dialog="comparison-dialog" aria-label="비교 닫기">×</button>
+         </div>
+         <div id="comparison-content"></div>
+-        <p class="studio-drawer-note">가상 데이터로 계산한 상대 비교입니다. 데이터가 없는 지표는 점수에서 제외됩니다.</p>
++        <p class="studio-drawer-note">후보지의 참고 추정치와 관측 지표를 비교합니다. 자료가 없는 지표는 점수에서 제외됩니다.</p>
+       </dialog>
+ 
+       <dialog id="report-dialog" class="studio-drawer studio-report-drawer" aria-label="창업 전략 리포트">
