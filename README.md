@@ -15,9 +15,9 @@
 
 2023년 346행은 학습, 2024년 336행은 테스트다. 모델과 설정 비교는 **2023년 데이터에서 상권ID를 그룹으로 잡아 5-fold 교차검증**하고, 2024년은 선정된 모델의 최종 평가에 사용한다. CSV를 무작위 80:20 분할하면 같은 상권의 다른 행이 학습과 평가에 섞인다. `상권ID`, `기준연도`, `split`은 식별·검증용이다. 입력은 명세의 `feature_columns` 9개를 사용한다. 매출 원본과 분모는 별도 검산 파일에 기록했다.
 
-### 랜덤포레스트 학습 및 팀 모델 비교
+### 경진대회 최종 모델 학습
 
-랜덤포레스트 실험은 팀 공통 모델 비교용으로 2023·2024년 전체 682행을 섞어 `train_test_split(test_size=0.2, random_state=42)`로 나눈다. 학습 545행과 테스트 137행을 사용하며, 같은 상권이 양쪽에 포함될 수 있다. 위의 연도 분할은 2023년으로 학습한 모델의 2024년 성능을 평가한다. 두 방식은 평가 조건이 다르므로 같은 분할로 산출한 모델 지표끼리 비교한다.
+경진대회 최종 모델은 랜덤 포레스트 회귀(`RandomForestRegressor`)다. 팀 모델 비교와 동일하게 2023·2024년 전체 682행을 섞어 `train_test_split(test_size=0.2, random_state=42)`로 나눈다. 학습 545행과 테스트 137행을 사용하며, 같은 상권이 양쪽에 포함될 수 있다. 위의 연도 분할은 2023년으로 학습한 모델의 2024년 성능을 평가한다. 두 방식은 평가 조건이 다르므로 같은 분할로 산출한 모델 지표끼리 비교한다.
 
 ```bash
 python -m pip install -r requirements-training.txt
@@ -25,6 +25,41 @@ python src/train_single_model.py
 ```
 
 학습 입력은 명세의 9개 컬럼이며 목표는 `점포당_연매출_참고값`이다. 수치형 중앙값과 범주형 원핫 인코딩은 학습 세트에서만 추정한다. `results/`에 학습·테스트 지표, 테스트 행별 예측과 절대오차, 원본 변수별 중요도 CSV 및 PNG, 전처리를 포함한 모델을 `randomforest_` 접두어로 저장한다. MAPE는 백분율로 기록하며 실제값이 0인 행은 MAPE 계산에서 제외한다. 학습 시간은 전체 파이프라인의 1회 학습 시간이고 추론 시간은 각 세트 전체의 예측 시간이다. 그래프에는 설치된 한글 글꼴을 사용하며, `--font-path`로 글꼴 파일을 지정할 수 있다. 저장된 모델은 Python 3.13과 scikit-learn 1.9.0에서 생성했다.
+
+### 백엔드에서 예측하기
+
+GitHub의 `training-data-pipeline` 브랜치에서 [학습된 모델](results/randomforest_model.pkl)과 [입력 명세](data/processed/training/annual_training_manifest.json)를 가져온다. Python 3.13 환경에서 아래 버전을 사용한다.
+
+```bash
+python -m pip install numpy==2.4.4 pandas==3.0.3 scikit-learn==1.9.0
+```
+
+아래 예시는 저장소 루트에서 실행한다. 백엔드에서는 모델과 명세를 서버 시작 시 한 번 읽고, 요청 처리 시 `predict_annual_sales(payload)`를 호출한다. 역직렬화에는 이 저장소에서 받은 모델 파일을 사용한다.
+
+```python
+import json
+import pickle
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+root = Path(".")
+manifest_path = root / "data/processed/training/annual_training_manifest.json"
+manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+features = manifest["feature_columns"]
+
+with (root / "results/randomforest_model.pkl").open("rb") as model_file:
+    model = pickle.load(model_file)
+
+
+def predict_annual_sales(payload):
+    row = {name: np.nan if payload[name] is None else payload[name] for name in features}
+    inputs = pd.DataFrame([row], columns=features)
+    return float(model.predict(inputs)[0])
+```
+
+요청에는 명세의 9개 키를 모두 넣는다. `산업분류코드`는 문자열, 나머지 8개 변수는 숫자로 전달한다. 관측값이 없으면 `null`을 전달한다. 모델에 저장된 전처리가 결측치 처리와 범주형 인코딩을 수행한다. API 응답의 예측값 단위는 원이며, 화면에는 **점포당 연매출 참고 추정치**로 표시한다.
 
 ### 전처리 및 검산
 
