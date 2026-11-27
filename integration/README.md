@@ -4,10 +4,10 @@
 
 ## 실행
 
-팀 웹앱 폴더 `AI-project-univ`가 이미 있는 상위 디렉터리에서 실행합니다. 이미 `AI_project`가 있다면 첫 줄 대신 해당 저장소의 `training-data-pipeline` 브랜치를 업데이트합니다. 기존 학습용 원본 파일은 내려받지 않아도 됩니다.
+팀 웹앱 폴더 `AI-project-univ`가 이미 있는 상위 디렉터리에서 실행합니다. 이미 `AI_project`가 있다면 첫 줄 대신 해당 저장소의 `training-data-pipeline` 브랜치를 업데이트합니다. 브랜치에는 실행과 재학습에 필요한 최종 데이터가 포함되어 있습니다.
 
 ```bash
-git -c filter.lfs.process= -c filter.lfs.smudge= -c filter.lfs.required=false clone --branch training-data-pipeline --single-branch --depth 1 https://github.com/kimwoojae1212/AI_project.git
+git clone --branch training-data-pipeline --single-branch --depth 1 https://github.com/kimwoojae1212/AI_project.git
 git -C AI-project-univ apply --check ../AI_project/integration/frontend.patch
 git -C AI-project-univ apply ../AI_project/integration/frontend.patch
 python -m pip install numpy==2.4.4 pandas==3.0.3 scikit-learn==1.9.0 shapely==2.2.0
