@@ -2,7 +2,7 @@
 
 경진대회 최종 모델은 랜덤 포레스트 회귀입니다. 밀당 지도 화면에 붙이려면 [프론트엔드 패치와 실행 방법](integration/README.md)을 참고하세요.
 
-## 남긴 파일
+## 서비스 실행과 재학습에 쓰는 파일
 
 | 파일 | 남긴 이유 |
 |---|---|
@@ -29,15 +29,28 @@ python src/train_single_model.py --results-dir work/retrained
 
 로컬 환경 파일과 캐시는 `.gitignore`에서 제외합니다.
 
-## 제거한 파일
+## 발표에서 확인할 과정과 결과
 
-| 이전 파일 | 원래 역할과 제거 이유 |
-|---|---|
-| `data/processed/`의 파일럿·중간 CSV와 검산표 | 분기별 매출과 점포 수 연결, 연매출 참고값 생성, 행정동 유동인구 집계, 지역·기간·목표값 검산에 쓰였습니다. 최종 CSV에 서버와 재학습에 필요한 값이 들어 있습니다. |
-| `build_training_data.py`, `build_annual_training_source.py`, `prepare_model_data.py`, `precess_population.py` | 원본에서 분기·연간 학습 자료와 유동인구 입력을 만들던 코드입니다. 원본부터 최종 CSV를 다시 만들 때 사용합니다. 현재 브랜치의 재학습은 최종 CSV부터 실행합니다. |
-| `build_anyang_sales.py`, `build_market_pilot.py`, `build_sales_training_pilot.py`, `match_sales_markets.py`, `prepare_anyang_sales.py` | 초기 안양 상권 매칭과 소규모 매출 파일럿 코드입니다. 현재 서버는 확정된 연간 데이터와 모델을 읽습니다. |
-| `check_*.py`, `final_population_check.py`, `validata_population.py`, `test_population_duplicates.py`, `results/01_…`~`04_…` | 원본 파일의 구조·월별 누락·행정동 코드·중복과 상권 연결을 점검하던 코드 및 보고서입니다. 서비스 요청이나 모델 재학습 과정에서 사용하지 않습니다. |
-| `randomforest_predictions.csv`, `randomforest_feature_importance.csv`·`.png` | 테스트 행별 예측과 변수 중요도 표·그래프입니다. 필요하면 위 재학습 명령으로 다시 생성합니다. |
-| 데이터·결과 하위 폴더의 `.gitattributes` | 기존 생성물에 Git LFS 예외를 적용했습니다. 현재 Git LFS 규칙은 원본 폴더의 CSV에만 적용합니다. |
+1. **원본 수집과 상권 매칭.** [원본 CSV](data/raw/)에서 안양시 상권과 매출을 연결합니다. [상권 매칭 검산표](data/processed/training/market_audit.csv)에 상권을 포함하거나 제외한 근거를 남겼고, [분기 집계 검산표](data/processed/training/period_audit.csv)에 분기별 점포 관측 여부와 매출 행 수를 기록했습니다. [분기별 상권 매출](data/processed/training/quarterly_market_sales.csv)과 [분기별 점포당 매출](data/processed/training/quarterly_per_store_sales.csv)은 이 단계의 산출물입니다.
+2. **목표값과 입력 변수 생성.** 매출이 4분기 모두 있는 상권·업종을 남기고, 연간 추정매출 합계를 해당 연도에 관측한 동종 점포 수로 나눴습니다. [연매출 중간 자료](data/processed/training/annual_per_store_proxy.csv)에서 500m 경쟁 변수까지 확인할 수 있고, [연매출 검산표](data/processed/training/annual_training_audit.csv)에는 분자·분모와 매칭 근거가 들어 있습니다.
+3. **행정동 유동인구 결합.** [안양시 유동인구 통합 CSV](data/processed/안양시_유동인구_2023_2025.csv)에서 [월별 행정동 특성](data/processed/training/dong_population_features.csv)을 집계했습니다. 2023년 3월의 누락 하루는 보간하지 않았습니다. 변경 전후 행정동 코드를 대조해 초기 미매칭 153행을 해소했고 **최종 682행 모두 연결**했습니다. 행정동은 현재 경계에 맞춰 연결했으므로 과거 경계 모양까지 재현한 자료는 아닙니다.
+4. **학습과 결과 해석.** 팀의 모델 비교 조건에 맞춰 80:20으로 나눴습니다. [학습·테스트 성능표](results/randomforest_metrics.csv), [테스트 137행의 실제값·예측값·오차](results/randomforest_predictions.csv), [변수 중요도 표](results/randomforest_feature_importance.csv)와 [발표용 그래프](results/randomforest_feature_importance.png)를 확인할 수 있습니다. 중요도는 모델이 분할에 사용한 정도이며 변수의 인과 효과로 해석할 수 없습니다. 원본의 연도별 `split` 컬럼은 별도 평가용 구분이고, 이 랜덤 포레스트 결과는 무작위 80:20 분할에서 나온 값입니다.
+5. **서비스 연결.** [프론트엔드 패치와 API 실행 가이드](integration/README.md)에서 저장된 모델을 지도 화면에 연결하는 방법을 확인할 수 있습니다.
 
-원본 CSV는 현재 브랜치의 `data/raw/`에 있습니다. 원본부터 전처리를 다시 수행할 때 필요한 기존 전처리 코드는 [정리 직전 커밋](https://github.com/kimwoojae1212/AI_project/tree/d3425a17057d7afaf838fc759e80f8697e882585)에서 확인할 수 있습니다.
+### 전처리 재현 순서
+
+실행 위치는 저장소 루트입니다. 아래 순서는 기본 출력 경로의 중간 자료와 최종 학습 CSV를 다시 생성하므로 별도 체크아웃에서 실행하는 편이 좋습니다. 기존 [팀원 행정동 경계 파일](https://github.com/woochul0516/AI-project-univ/blob/7b0b9939b0b8be6ba5edce07e1d268138589664e/data/geojson/anyang-si.geojson)을 준비합니다.
+
+```bash
+python -m pip install -r requirements-training.txt
+git lfs pull --include="data/raw/매출/**,data/raw/상권/**,data/raw/상권현황/**,data/processed/안양시_유동인구_2023_2025.csv"
+python src/build_training_data.py
+python src/build_annual_training_source.py --proxy
+python src/prepare_model_data.py --boundary path/to/anyang-si.geojson
+```
+
+유동인구 통합 CSV를 원본 36개에서 다시 만들 때는 해당 원본 LFS 자료를 받은 후 `python src/precess_population.py`를 실행합니다. `build_sales_training_pilot.py`는 이름에 파일럿이 들어가지만 분기 매출 코드가 상권 기준과 데이터 키를 이 파일에서 가져오므로 유지합니다.
+
+## 이번 정리에서 뺀 자료
+
+현재 브랜치에서 제거 상태로 둔 것은 초기 두 상권 확인용 샘플, 소규모 매출 파일럿 산출물, 반복 실행용 파일 목록·컬럼 검사 코드와 탐색 보고서입니다. 이런 자료의 역할은 초기 연결 가능성과 파일 구조를 확인하는 것이었습니다. 최종 단계의 상권 선정 근거와 분기·연매출·인구 검산은 위 표와 코드에서 확인할 수 있습니다. 탐색 자료가 필요하면 [정리 전 Git 이력](https://github.com/kimwoojae1212/AI_project/tree/d3425a17057d7afaf838fc759e80f8697e882585)에서 볼 수 있습니다.
